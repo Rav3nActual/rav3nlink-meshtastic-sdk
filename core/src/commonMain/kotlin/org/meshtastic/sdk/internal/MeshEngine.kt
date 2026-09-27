@@ -20,6 +20,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -319,9 +320,12 @@ internal class MeshEngine(
         // coroutine doesn't die silently.
         scope.launch(CoroutineName("meshtastic-frame-reader")) {
             try {
-                transport.state.first { it is org.meshtastic.sdk.TransportState.Connected }
-                transport.frames().collect { frame ->
-                    inbox.send(EngineMessage.FrameRx(frame))
+                transport.state.collectLatest { state ->
+                    if (state is org.meshtastic.sdk.TransportState.Connected) {
+                        transport.frames().collect { frame ->
+                            inbox.send(EngineMessage.FrameRx(frame))
+                        }
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -2368,6 +2372,7 @@ internal class MeshEngine(
      * can't double-fire with a user-initiated disconnect or the TCP read timeout.
      */
     private fun handleLivenessTick() {
+        if (transport.identity.raw.startsWith("ble:")) return
         if (disconnecting) return
         if (handshakeStage != HandshakeStage.Ready) return
         livenessBudgetMs -= LIVENESS_CHECK_INTERVAL_MS
